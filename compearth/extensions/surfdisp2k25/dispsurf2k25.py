@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Python implementation of the surfdisp96 subroutine from surfdisp96.f90.
 
@@ -6,14 +8,20 @@ from the surfdisp96 Fortran code, which is responsible for calculating
 surface wave dispersion curves.
 """
 
-import numpy as np
-import torch
 from typing import Tuple, List, Union, Optional, Any
+
+import numpy as np
+
+try:
+    import torch
+except ImportError:  # pragma: no cover - Optional dependency
+    torch = None  # type: ignore[assignment]
+
 import compearth.extensions.surfdisp2k25 as sd2k25
 
 
 def dispsurf2k25_simulator(
-        theta: torch.Tensor,
+        theta: "torch.Tensor",
         p_min: float,
         p_max: float,
         kmax: int,
@@ -26,6 +34,12 @@ def dispsurf2k25_simulator(
     """
     surfdisp2k25_simulator
     """
+    if torch is None:  # pragma: no cover - Guard for optional dependency
+        raise ImportError(
+            "dispsurf2k25_simulator requires the optional dependency `torch`. "
+            "Install it with `pip install compearth[torch]`."
+        )
+
     bs = theta.shape[0]
 
     # To numpy

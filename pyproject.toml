@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "compearth-workshop"
+version = "0.1.0"
+description = "Machine learning tooling for inverse problems in geotechnical engineering."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Computational Earth Workshop" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Physics"
+]
+dependencies = [
+  "numpy>=1.20"
+]
+
+[project.optional-dependencies]
+torch = ["torch>=1.13"]
+
+[project.urls]
+Homepage = "https://github.com/ComputationalEarthWorkshop/CompEarth-Workshop"
+
+[tool.setuptools.packages.find]
+include = ["compearth*"]
+
