@@ -58,21 +58,21 @@ def dispsurf2k25(thkm, vpm, vsm, rhom, iflsph, iwave, mode, igr, kmax, t):
 
 ```python
 import numpy as np
-from migrate.extensions.surfdisp2k25 import dispsurf2k25
+from compearth.extensions.surfdisp2k25 import dispsurf2k25
 
 # Create a simple model
 # 3 layers: 2 layers + half-space
 thkm = np.array([10.0, 20.0, 0.0])  # Layer thicknesses in km
-vpm = np.array([5.0, 6.0, 7.0])     # P-wave velocities in km/s
-vsm = np.array([3.0, 3.5, 4.0])     # S-wave velocities in km/s
-rhom = np.array([2.7, 2.9, 3.1])    # Densities in g/cm^3
+vpm = np.array([5.0, 6.0, 7.0])  # P-wave velocities in km/s
+vsm = np.array([3.0, 3.5, 4.0])  # S-wave velocities in km/s
+rhom = np.array([2.7, 2.9, 3.1])  # Densities in g/cm^3
 
 # Parameters for dispsurf2k25
-iflsph = 0                          # Flat earth model
-iwave = 1                           # Love waves
-mode = 1                            # Fundamental mode
-igr = 0                             # Phase velocity only
-kmax = 5                            # Number of periods
+iflsph = 0  # Flat earth model
+iwave = 1  # Love waves
+mode = 1  # Fundamental mode
+igr = 0  # Phase velocity only
+kmax = 5  # Number of periods
 t = np.array([5.0, 10.0, 15.0, 20.0, 25.0])  # Periods in seconds
 
 # Call the function

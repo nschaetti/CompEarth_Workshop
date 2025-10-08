@@ -9,7 +9,7 @@ surface wave dispersion curves.
 import numpy as np
 import torch
 from typing import Tuple, List, Union, Optional, Any
-import migrate.extensions.surfdisp2k25 as sd2k25
+import compearth.extensions.surfdisp2k25 as sd2k25
 
 
 def dispsurf2k25_simulator(

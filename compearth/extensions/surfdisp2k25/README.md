@@ -64,23 +64,23 @@ def getsol(t1, c1, clow, dc, cm, betmx, ifunc, ifirst, d, a, b, rho):
 
 ```python
 import numpy as np
-from migrate.extensions.surfdisp2k25 import getsol
+from compearth.extensions.surfdisp2k25 import getsol
 
 # Define a three-layer model
 d = np.array([2.0, 5.0, 10.0])  # Layer thicknesses in km
-a = np.array([5.8, 6.8, 8.0])   # P-wave velocities in km/s
-b = np.array([3.2, 3.9, 4.5])   # S-wave velocities in km/s
-rho = np.array([2.7, 3.0, 3.3]) # Densities in g/cm^3
+a = np.array([5.8, 6.8, 8.0])  # P-wave velocities in km/s
+b = np.array([3.2, 3.9, 4.5])  # S-wave velocities in km/s
+rho = np.array([2.7, 3.0, 3.3])  # Densities in g/cm^3
 
 # Parameters for getsol
-t1 = 10.0        # Period in seconds
-c1 = 3.0         # Initial phase velocity estimate in km/s
-clow = 2.0       # Lower bound for phase velocity
-dc = 0.01        # Phase velocity increment
-cm = 2.0         # Minimum phase velocity
-betmx = 5.0      # Maximum phase velocity
-ifunc = 2        # 2 for Rayleigh waves, 1 for Love waves
-ifirst = 1       # 1 for first call, 0 otherwise
+t1 = 10.0  # Period in seconds
+c1 = 3.0  # Initial phase velocity estimate in km/s
+clow = 2.0  # Lower bound for phase velocity
+dc = 0.01  # Phase velocity increment
+cm = 2.0  # Minimum phase velocity
+betmx = 5.0  # Maximum phase velocity
+ifunc = 2  # 2 for Rayleigh waves, 1 for Love waves
+ifirst = 1  # 1 for first call, 0 otherwise
 
 # Call getsol to find the phase velocity
 c_refined, iret = getsol(t1, c1, clow, dc, cm, betmx, ifunc, ifirst, d, a, b, rho)

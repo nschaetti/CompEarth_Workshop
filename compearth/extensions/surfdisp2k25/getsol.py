@@ -9,7 +9,7 @@ import math
 
 import numpy as np
 from typing import Tuple, List, Union
-import migrate.extensions.surfdisp2k25 as sd2k25
+import compearth.extensions.surfdisp2k25 as sd2k25
 
 
 _del1st = 0.0

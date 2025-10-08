@@ -6,7 +6,7 @@ using machine learning techniques.
 """
 
 # Import main modules
-from migrate import extensions
+from compearth import extensions
 
 __all__ = [
     'extensions'
