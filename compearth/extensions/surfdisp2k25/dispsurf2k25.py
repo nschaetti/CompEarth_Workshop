@@ -9,19 +9,14 @@ surface wave dispersion curves.
 """
 
 from typing import Tuple, List, Union, Optional, Any
-
 import numpy as np
-
-try:
-    import torch
-except ImportError:  # pragma: no cover - Optional dependency
-    torch = None  # type: ignore[assignment]
-
+import torch
+import tqdm
 import compearth.extensions.surfdisp2k25 as sd2k25
 
 
 def dispsurf2k25_simulator(
-        theta: "torch.Tensor",
+        theta: torch.Tensor,
         p_min: float,
         p_max: float,
         kmax: int,
@@ -30,58 +25,65 @@ def dispsurf2k25_simulator(
         mode: int = 1,
         igr: int = 1,
         dtype: torch.dtype = torch.float32,
+        progress: bool = False,
 ) -> torch.Tensor:
     """
-    surfdisp2k25_simulator
+    Compute dispersion curves using the dispsurf2k25 simulator.
+    If kmax > 60, interpolation is performed to match the requested number of periods.
+
+    Parameters
+    ----------
+    theta : torch.Tensor
+        Model parameters [n_layers, vpvs, h_1...h_Nmax, vs_1...vs_Nmax], shape (B, D)
+    p_min, p_max : float
+        Minimum and maximum periods (s)
+    kmax : int
+        Desired number of output periods (interpolated if > 60)
+    iflsph, iwave, mode, igr : int
+        Physical simulation flags (see surfdisp96 documentation)
+    dtype : torch.dtype
+        Output tensor type (default: float32)
+    progress : bool
+        If True, display a tqdm progress bar.
+
+    Returns
+    -------
+    torch.Tensor
+        Simulated dispersion curves, shape (B, kmax)
     """
-    if torch is None:  # pragma: no cover - Guard for optional dependency
-        raise ImportError(
-            "dispsurf2k25_simulator requires the optional dependency `torch`. "
-            "Install it with `pip install compearth[torch]`."
-        )
 
     bs = theta.shape[0]
+    theta_np = theta.detach().cpu().numpy()
 
-    # To numpy
-    theta = theta.numpy()
+    # surfdisp2k25 only supports NP = 60 internally
+    kmax_internal = 60
+    t_internal = np.linspace(p_min, p_max, kmax_internal)
+    output_disp_internal = np.zeros((bs, kmax_internal))
 
-    # Output dispersion curves
-    output_disp = np.zeros((bs, kmax))
+    # Progress bar
+    iterator = tqdm.tqdm(range(bs), desc="Running dispsurf2k25", disable=not progress)
 
-    # Prepare periods
-    t = np.linspace(p_min, p_max, kmax)
-
-    for b_i in range(bs):
-        # Prepare inputs
+    for b_i in iterator:
         thkm = np.zeros(100)
         vpm = np.zeros(100)
         vsm = np.zeros(100)
         rhom = np.zeros(100)
 
-        # Compute max. layer
-        max_layer = (theta.shape[1] - 2) // 2
+        max_layer = (theta_np.shape[1] - 2) // 2
+        n = int(theta_np[b_i, 0])
+        vpvs = theta_np[b_i, 1]
 
-        # Number of layers
-        n = int(theta[b_i, 0])
-        vpvs = theta[b_i, 1]
+        h = theta_np[b_i, 2:max_layer + 2]
+        vs = theta_np[b_i, max_layer + 2:]
 
-        # Get parameters
-        h = theta[b_i, 2:max_layer+2]
-        vs = theta[b_i, max_layer+2:]
-
-        # Get Vp
         vp = vs * vpvs
-
-        # Get rho (simple linear law)
         rho = 0.32 + 0.77 * vp
 
-        # Prepare inputs
         thkm[:n] = h[:n]
         vpm[:n] = vp[:n]
         vsm[:n] = vs[:n]
         rhom[:n] = rho[:n]
 
-        # Run simulation
         disp_y, err = dispsurf2k25(
             thkm=thkm,
             vsm=vsm,
@@ -92,16 +94,31 @@ def dispsurf2k25_simulator(
             iwave=iwave,
             mode=mode,
             igr=igr,
-            kmax=60,
-            t=t,
+            kmax=kmax_internal,
+            t=t_internal,
         )
 
         if err != 0:
             raise RuntimeError(f"Simulation {b_i} failed with error: {err}")
         # end if
 
-        output_disp[b_i, :] = disp_y
+        output_disp_internal[b_i, :] = disp_y
     # end for
+
+    # Interpolate to requested kmax (if different)
+    if kmax != kmax_internal:
+        t_target = np.linspace(p_min, p_max, kmax)
+        output_disp = np.zeros((bs, kmax))
+        for i in range(bs):
+            output_disp[i, :] = np.interp(
+                t_target,
+                t_internal,
+                output_disp_internal[i, :]
+            )
+        # end for
+    else:
+        output_disp = output_disp_internal
+    # end if
 
     return torch.from_numpy(output_disp).to(dtype)
 # end dispsurf2k25_simulator
