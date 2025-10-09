@@ -9,7 +9,9 @@ def plot_velocity_and_dispersion(
         disp_curve,
         p_min,
         p_max,
-        kmax
+        kmax,
+        fig_size: int = 2,
+        dpi: int = 300
 ):
     """
     Plot a layered velocity model (Vs vs depth) and its dispersion curve.
@@ -28,6 +30,10 @@ def plot_velocity_and_dispersion(
         Maximum period (s).
     kmax : int
         Number of period samples.
+    fig_size : int
+        Figure size.
+    dpi : int
+        Dots per inch.
     """
     # Convert dispersion curve to numpy
     if isinstance(disp_curve, torch.Tensor):
@@ -58,7 +64,7 @@ def plot_velocity_and_dispersion(
     periods = np.linspace(p_min, p_max, kmax)
 
     # ---- Plot ----
-    fig, ax = plt.subplots(1, 2, figsize=(14, 6))
+    fig, ax = plt.subplots(1, 2, figsize=(int(7 * fig_size), int(3 * fig_size)), dpi=dpi)
 
     # Velocity model
     ax[0].plot(z_plot, vs_plot, color='royalblue', linewidth=2)
