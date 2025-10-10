@@ -3,6 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+import ruptures as rpt
 from typing import Union, List, Sequence, Optional
 
 
@@ -151,3 +152,187 @@ def plot_velocity_and_dispersion(
     plt.tight_layout()
     plt.show()
 # end def plot_velocity_and_dispersion
+
+
+def plot_training_summary(
+        inference
+):
+    """
+    Plot training summary
+    """
+    train_loss = np.array(inference._summary.get("training_loss", []))
+    val_loss = np.array(inference._summary.get("validation_loss", []))
+
+    if len(train_loss) == 0 and len(val_loss) == 0:
+        raise ValueError("No training or validation losses found in inference._summary.")
+    # end if
+
+    # Align lengths
+    n_epochs = max(len(train_loss), len(val_loss))
+    epochs = np.arange(1, n_epochs + 1)
+
+    # --- Plot ---
+    fig = plt.figure(figsize=(8, 5), dpi=300)
+    if len(train_loss) > 0:
+        plt.plot(train_loss, label="Training loss", color="orange", linewidth=2)
+    # end if
+
+    if len(val_loss) > 0:
+        plt.plot(val_loss, label="Validation loss", color="steelblue", linewidth=2)
+    # end if
+
+    plt.title("Training and Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+# end def plot_training_summary
+
+
+def plot_posterior_grid(
+    posterior,
+    x: torch.Tensor,
+    theta: torch.Tensor,
+    z: torch.Tensor,
+    n_row: int = 2,
+    n_col: int = 3,
+    n_samples: int = 100,
+    vs_min: float = 1.5,
+    vs_max: float = 4.5,
+    device: Optional[torch.device] = None,
+    figsize: tuple = (14, 6),
+    dpi: int = 300,
+):
+    """
+    Plot several posterior samples compared to ground truth profiles.
+
+    Parameters
+    ----------
+    posterior : sbi posterior
+        Trained posterior object.
+    x : torch.Tensor
+        Validation observations (B, D_x).
+    theta : torch.Tensor
+        True parameters (B, D_theta).
+    z : torch.Tensor
+        Depth array (D_z,).
+    n_row, n_col : int
+        Number of rows and columns in the grid.
+    n_samples : int
+        Number of posterior samples to draw per observation.
+    vs_min, vs_max : float
+        Limits for Vs axis.
+    device : torch.device or None
+        Device for posterior sampling (default: same as posterior).
+    figsize : tuple
+        Figure size.
+    dpi : int
+        Figure DPI.
+    """
+    total_plots = n_row * n_col
+    indices = torch.linspace(0, len(x) - 1, total_plots, dtype=int)
+
+    if device is None:
+        device = next(posterior.net.parameters()).device if hasattr(posterior, "net") else "cpu"
+    # end if
+
+    fig, axes = plt.subplots(n_row, n_col, figsize=figsize, dpi=dpi)
+    axes = axes.flatten()
+
+    for ax, idx in zip(axes, indices):
+        x_obs = x[idx:idx + 1, :].to(device)
+        samples = posterior.sample((n_samples,), x=x_obs).cpu()
+        theta_ref = theta[idx].cpu()
+
+        for i in range(n_samples):
+            ax.plot(z, samples[i], color="royalblue", alpha=0.2, linewidth=0.8)
+        # end for
+        ax.plot(z, theta_ref, color="red", linewidth=2)
+
+        ax.set_title(f"Observation {idx.item()}", fontsize=9)
+        ax.set_ylim(vs_min, vs_max)
+        ax.set_xlabel("Depth [km]")
+        ax.set_ylabel("Vs [km/s]")
+        ax.grid(True, linestyle="--", alpha=0.4)
+    # end for
+
+    plt.tight_layout()
+    plt.show()
+# end def plot_posterior_grid
+
+
+def plot_flatten_grid(
+    sample: np.ndarray,
+    theta: np.ndarray,
+    z: np.ndarray,
+    n_row: int = 2,
+    n_col: int = 3,
+    penalty_min: float = 0.1,
+    penalty_max: float = 10.0,
+    vs_min: float = 1.5,
+    vs_max: float = 4.5,
+    figsize: tuple = (14, 6),
+    dpi: int = 200,
+):
+    """
+    Plot the flattening (change point detection with PELT)
+    for various penalty values on one posterior sample.
+
+    Parameters
+    ----------
+    sample : np.ndarray
+        Posterior sample (Vs profile, shape: [D_z]).
+    theta : np.ndarray
+        Ground truth velocity model (same shape).
+    z : np.ndarray
+        Depth coordinates.
+    n_row, n_col : int
+        Grid size (number of plots = n_row * n_col).
+    penalty_min, penalty_max : float
+        Range of penalties tested in PELT algorithm.
+    vs_min, vs_max : float
+        Velocity axis limits.
+    figsize : tuple
+        Figure size.
+    dpi : int
+        Plot resolution.
+    """
+    n_plots = n_row * n_col
+    penalties = np.linspace(penalty_min, penalty_max, n_plots)
+
+    fig, axes = plt.subplots(n_row, n_col, figsize=figsize, dpi=dpi)
+    axes = axes.flatten()
+
+    for ax, pen in zip(axes, penalties):
+        # --- 1. Segment the posterior sample ---
+        algo = rpt.Pelt(model="l2").fit(sample)
+        bkps = algo.predict(pen=pen)
+
+        # --- 2. Flatten profile ---
+        vs_flat = np.zeros_like(sample)
+        start = 0
+        for end in bkps:
+            vs_flat[start:end] = np.mean(sample[start:end])
+            start = end
+        # end for
+
+        # --- 3. Plot results ---
+        ax.plot(z, theta, color="red", linewidth=2, label="Ground truth", alpha=0.4)
+        ax.plot(z, sample, color="steelblue", linewidth=1, label="Posterior sample", alpha=0.7)
+        ax.plot(z, vs_flat, color="orange", linewidth=2, label="Flattened sample")
+        ax.set_ylim(vs_min - 0.1, vs_max + 0.1)
+        ax.set_xlim(z.min(), z.max())
+        ax.set_title(f"Penalty = {pen:.2f}", fontsize=9)
+        ax.grid(True, linestyle="--", alpha=0.4)
+        ax.tick_params(axis="both", labelsize=8)
+    # end for
+
+    # --- Optional global legend ---
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=3, fontsize=9)
+    plt.tight_layout(rect=(0, 0, 1, 0.95))
+    plt.show()
+# end def plot_flatten_grid
+

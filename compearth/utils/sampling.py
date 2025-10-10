@@ -5,6 +5,7 @@ from typing import Union
 import numpy as np
 import torch
 from typing import Tuple
+import ruptures as rpt
 
 
 def sample_models(
@@ -140,3 +141,37 @@ def theta_to_velocity_profile(
 
     return depth, vs_profile
 # end def theta_to_velocity_profile
+
+
+def flatten_models(
+        samples: torch.Tensor,
+        penalty: float = 0.0,
+):
+    """
+    Flatten models.
+    """
+    assert samples.ndim == 2
+
+    def flatten(vs, pen):
+        algo = rpt.Pelt(model="l2").fit(vs)
+        bkps = algo.predict(pen=pen)
+        vs_flat = np.zeros_like(vs)
+        start = 0
+        for end in bkps:
+            vs_flat[start:end] = np.mean(vs[start:end])
+            start = end
+        # end for
+        return vs_flat
+    # end flatten
+
+    flat_models = list()
+    for b in range(samples.shape[0]):
+        m_flat = flatten(
+            samples[b].cpu().numpy(),
+            pen=penalty
+        )
+        flat_models.append(torch.tensor(m_flat).unsqueeze(0))
+    # end for
+
+    return torch.cat(flat_models, dim=0)
+# end def flatten_models
