@@ -9,17 +9,18 @@ import ruptures as rpt
 
 
 def sample_models(
-    n_samples: int = 8,
-    layers_min: int = 2,
-    layers_max: int = 10,
-    z_min: float = 0.0,
-    z_max: float = 60.0,
-    vs_min: float = 1.5,
-    vs_max: float = 4.5,
-    vpvs_fixed: float = 1.75,
-    thick_min: float = 0.5,
-    sort_vs: bool = False,
-    random_state: np.random.Generator | None = None,
+        n_samples: int = 8,
+        layers_min: int = 2,
+        layers_max: int = 10,
+        z_min: float = 0.0,
+        z_max: float = 60.0,
+        vs_min: float = 1.5,
+        vs_max: float = 4.5,
+        vpvs_fixed: float = 1.75,
+        thick_min: float = 0.5,
+        sort_vs: bool = False,
+        rng: np.random.Generator | None = None,
+        seed: int = 42,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Correct version:
@@ -27,20 +28,20 @@ def sample_models(
     - Last interface = z_max
     - Last layer already acts as the half-space (no extra layer)
     """
-    if random_state is None:
-        random_state = np.random.default_rng()
+    if rng is None:
+        rng = np.random.default_rng(seed)
     # end if
 
     samples, z_vnoi_all = [], []
 
     for _ in range(n_samples):
         # --- 1. Number of Voronoi points = number of layers ---
-        n_layers = random_state.integers(layers_min, layers_max)
+        n_layers = rng.integers(layers_min, layers_max)
 
         # --- 2. Generate valid Voronoi midpoints ---
         valid = False
         while not valid:
-            z_vnoi = np.sort(random_state.uniform(low=z_min, high=z_max, size=n_layers))
+            z_vnoi = np.sort(rng.uniform(low=z_min, high=z_max, size=n_layers))
 
             # Interfaces halfway between consecutive midpoints
             interfaces = np.zeros(n_layers + 1)
@@ -57,13 +58,13 @@ def sample_models(
         # end while
 
         # --- 3. Sample Vs values ---
-        vs = random_state.uniform(low=vs_min, high=vs_max, size=n_layers)
+        vs = rng.uniform(low=vs_min, high=vs_max, size=n_layers)
         if sort_vs:
             vs = np.sort(vs)
         # end if
 
         # Increase last Vs slightly (half-space behaviour)
-        vs[-1] += random_state.uniform(0.2, 0.5)
+        vs[-1] += rng.uniform(0.2, 0.5)
 
         # --- 4. Pad to layers_max ---
         h_padded = np.zeros(layers_max)
@@ -141,6 +142,118 @@ def theta_to_velocity_profile(
 
     return depth, vs_profile
 # end def theta_to_velocity_profile
+
+
+def posterior_sample_to_theta(
+        z: Union[np.ndarray, torch.Tensor],
+        vs_batch: Union[np.ndarray, torch.Tensor],
+        vpvs: float = 1.75,
+        penalty_min: float = 0.1,
+        penalty_max: float = 5.0,
+        model: str = "l2",
+        max_layers: int = 20,
+        seed: int = 42,
+) -> Tuple[torch.Tensor, list, np.ndarray]:
+    """
+    Convert multiple posterior velocity samples into layered Earth models (θ),
+    using PELT segmentation with a random penalty drawn uniformly for each sample.
+    Breakpoints are returned in depth (km) rather than indices.
+
+    Parameters
+    ----------
+    z : np.ndarray or torch.Tensor
+        Depth coordinates (D_z,), in km.
+    vs_batch : np.ndarray or torch.Tensor
+        Velocity profiles (N, D_z)
+    vpvs : float
+        Fixed Vp/Vs ratio for all models
+    penalty_min, penalty_max : float
+        Range for random penalties
+    model : str
+        Cost model for ruptures (default: 'l2')
+    max_layers : int
+        Maximum number of layers (for padding in θ)
+    seed : int
+        Random seed for reproducibility
+
+    Returns
+    -------
+    theta_all : torch.Tensor
+        Model parameters of shape (N, 2 + 2 * max_layers)
+        [n_layers, vpvs, h_1...h_max, vs_1...vs_max]
+    bkps_all_km : list[list[float]]
+        List of breakpoint depths (km) for each sample
+    penalties : np.ndarray
+        Penalties drawn for each sample
+    """
+    # --- Convert to numpy ---
+    if hasattr(vs_batch, "detach"):
+        vs_batch = vs_batch.detach().cpu().numpy()
+    # end if
+
+    if hasattr(z, "detach"):
+        z = z.detach().cpu().numpy()
+    # end if
+
+    n_samples, n_depths = vs_batch.shape
+    theta_all = []
+    bkps_all_km = []
+    penalties = []
+
+    rng = np.random.default_rng(seed)
+
+    for i in range(n_samples):
+        vs = vs_batch[i]
+        penalty = rng.uniform(penalty_min, penalty_max)
+        penalties.append(penalty)
+
+        algo = rpt.Pelt(model=model).fit(vs)
+        bkps = algo.predict(pen=penalty)
+
+        # --- Convert breakpoints (indices) -> depths (km)
+        bkps_depth = [z[min(end - 1, len(z) - 1)] for end in bkps if end <= len(z)]
+        bkps_all_km.append(bkps_depth)
+
+        # --- Build layers ---
+        vs_layers = []
+        h_layers = []
+        start = 0
+
+        for end in bkps:
+            segment_vs = vs[start:end]
+            segment_z = z[start:end]
+            mean_vs = np.mean(segment_vs)
+            vs_layers.append(mean_vs)
+            if len(segment_z) > 0:
+                h_layers.append(segment_z[-1] - segment_z[0])
+            else:
+                h_layers.append(0.0)
+            # end if
+            start = end
+        # end for
+
+        # Half-space (last layer)
+        if h_layers:
+            h_layers[-1] = 0.0
+        # end if
+
+        # Padding
+        n_layers = len(vs_layers)
+        h_padded = np.zeros(max_layers)
+        vs_padded = np.zeros(max_layers)
+        h_padded[:n_layers] = h_layers[:max_layers]
+        vs_padded[:n_layers] = vs_layers[:max_layers]
+
+        # Assemble θ vector
+        theta = [n_layers, vpvs] + h_padded.tolist() + vs_padded.tolist()
+        theta_all.append(theta)
+    # end for
+
+    theta_all = torch.tensor(theta_all, dtype=torch.float32)
+    penalties = np.array(penalties)
+
+    return theta_all, bkps_all_km, penalties
+# end def posterior_sample_to_theta
 
 
 def flatten_models(

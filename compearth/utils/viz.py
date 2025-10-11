@@ -7,7 +7,7 @@ import ruptures as rpt
 from typing import Union, List, Sequence, Optional
 
 
-def plot_velocity_and_dispersion(
+def plot_theta_and_dispersion(
         theta: Union[torch.Tensor, np.ndarray],
         disp_curve: Union[torch.Tensor, np.ndarray],
         p_min: float,
@@ -93,8 +93,7 @@ def plot_velocity_and_dispersion(
         finite_thicknesses = [t for t in h if t > 0]
         depth_interfaces = np.concatenate(([0], np.cumsum(finite_thicknesses))) if len(finite_thicknesses) > 0 else np.array([0])
 
-        # Déterminer la profondeur max physique :
-        # dernier point Voronoï + moitié de l'épaisseur réelle de la dernière couche
+        # ...
         if z_vnoi is not None and np.any(z_vnoi[i] > 0):
             valid_voronoi = z_vnoi[i][z_vnoi[i] > 0.0]
             last_voronoi = valid_voronoi[-1]
@@ -151,7 +150,7 @@ def plot_velocity_and_dispersion(
 
     plt.tight_layout()
     plt.show()
-# end def plot_velocity_and_dispersion
+# end def plot_theta_and_dispersion
 
 
 def plot_training_summary(
@@ -335,4 +334,170 @@ def plot_flatten_grid(
     plt.tight_layout(rect=(0, 0, 1, 0.95))
     plt.show()
 # end def plot_flatten_grid
+
+
+def plot_flatten_models(
+    samples: Union[np.ndarray, torch.Tensor],
+    theta: Union[np.ndarray, torch.Tensor],
+    z: Union[np.ndarray, torch.Tensor],
+    penalty: float = 1.0,
+    vs_min: float = 1.5,
+    vs_max: float = 4.5,
+    figsize: tuple = (8, 5),
+    dpi: int = 200,
+):
+    """
+    Flatten all posterior samples using PELT with a fixed penalty
+    and display them together with the ground truth profile.
+
+    Parameters
+    ----------
+    samples : np.ndarray or torch.Tensor
+        Posterior samples (N, D_z)
+    theta : np.ndarray or torch.Tensor
+        Ground truth velocity profile (D_z,)
+    z : np.ndarray or torch.Tensor
+        Depth coordinates (D_z,)
+    penalty : float
+        Penalty value for PELT algorithm.
+    vs_min, vs_max : float
+        Limits for Vs axis.
+    figsize : tuple
+        Figure size.
+    dpi : int
+        Plot resolution.
+    """
+    # --- Convert tensors to numpy ---
+    if hasattr(samples, "detach"):
+        samples = samples.detach().cpu().numpy()
+    if hasattr(theta, "detach"):
+        theta = theta.detach().cpu().numpy()
+    if hasattr(z, "detach"):
+        z = z.detach().cpu().numpy()
+
+    n_samples = samples.shape[0]
+
+    # --- Prepare figure ---
+    plt.figure(figsize=figsize, dpi=dpi)
+
+    # Plot flattened posterior samples
+    for i in range(n_samples):
+        s = samples[i]
+        algo = rpt.Pelt(model="l2").fit(s)
+        bkps = algo.predict(pen=penalty)
+
+        vs_flat = np.zeros_like(s)
+        start = 0
+        for end in bkps:
+            vs_flat[start:end] = np.mean(s[start:end])
+            start = end
+
+        plt.plot(z, vs_flat, alpha=0.3, linewidth=1)
+    # end for
+
+    # Plot ground truth
+    plt.plot(z, theta, color="red", linewidth=2, label="Ground truth", alpha=0.7)
+
+    # Style
+    plt.xlabel("Depth [km]")
+    plt.ylabel("Vs [km/s]")
+    plt.title(f"Flattened posterior samples (penalty={penalty:.2f})")
+    plt.ylim(vs_min - 0.1, vs_max + 0.1)
+    plt.xlim(z.min(), z.max())
+    plt.grid(True, linestyle="--", alpha=0.4)
+    plt.legend()
+    plt.show()
+# end def plot_flatten_models
+
+
+def plot_random_flatten_models(
+        samples: Union[np.ndarray, torch.Tensor],
+        theta: Union[np.ndarray, torch.Tensor],
+        z: Union[np.ndarray, torch.Tensor],
+        penalty_min: float = 0.1,
+        penalty_max: float = 5.0,
+        vs_min: float = 1.5,
+        vs_max: float = 4.5,
+        figsize: tuple = (8, 5),
+        dpi: int = 200,
+        rng: np.random.RandomState = None,
+        seed: int = 42,
+):
+    """
+    Flatten each posterior sample with a random penalty drawn uniformly
+    between `penalty_min` and `penalty_max`, and display all results.
+
+    Parameters
+    ----------
+    samples : np.ndarray or torch.Tensor
+        Posterior samples (N, D_z)
+    theta : np.ndarray or torch.Tensor
+        Ground truth velocity profile (D_z,)
+    z : np.ndarray or torch.Tensor
+        Depth coordinates (D_z,)
+    penalty_min, penalty_max : float
+        Range for randomly sampled penalties.
+    vs_min, vs_max : float
+        Velocity axis limits.
+    figsize : tuple
+        Figure size.
+    dpi : int
+        Plot resolution.
+    rng : np.random.RandomState
+        Random state.
+    seed : int
+        Random seed for reproducibility.
+    """
+    # --- Convert tensors to numpy ---
+    if hasattr(samples, "detach"):
+        samples = samples.detach().cpu().numpy()
+    # end if
+
+    if hasattr(theta, "detach"):
+        theta = theta.detach().cpu().numpy()
+    # end if
+
+    if hasattr(z, "detach"):
+        z = z.detach().cpu().numpy()
+    # end if
+
+    if rng is None:
+        rng = np.random.default_rng(seed)
+    # end if
+
+    n_samples = samples.shape[0]
+
+    plt.figure(figsize=figsize, dpi=dpi)
+
+    # --- Process each sample ---
+    for i in range(n_samples):
+        s = samples[i]
+        penalty = rng.uniform(penalty_min, penalty_max)
+
+        algo = rpt.Pelt(model="l2").fit(s)
+        bkps = algo.predict(pen=penalty)
+
+        vs_flat = np.zeros_like(s)
+        start = 0
+        for end in bkps:
+            vs_flat[start:end] = np.mean(s[start:end])
+            start = end
+        # end for
+
+        plt.plot(z, vs_flat, alpha=0.3, linewidth=1)
+    # end for
+
+    # Plot ground truth
+    plt.plot(z, theta, color="red", linewidth=2, alpha=0.7, label="Ground truth")
+
+    plt.xlabel("Depth [km]")
+    plt.ylabel("Vs [km/s]")
+    plt.title(f"Random flattening (penalty ∈ [{penalty_min}, {penalty_max}])")
+    plt.ylim(vs_min - 0.1, vs_max + 0.1)
+    plt.xlim(z.min(), z.max())
+    plt.grid(True, linestyle="--", alpha=0.4)
+    plt.legend()
+    plt.show()
+# end def plot_random_flatten_models
+
 

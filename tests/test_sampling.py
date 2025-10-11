@@ -33,7 +33,7 @@ class TestSampleModels(unittest.TestCase):
             vs_max=vs_max,
             vpvs_fixed=vpvs_fixed,
             thick_min=thick_min,
-            random_state=rng,
+            rng=rng,
         )
 
         self.assertEqual(theta.shape, (n_samples, 2 + 2 * layers_max))
