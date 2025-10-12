@@ -152,6 +152,7 @@ def posterior_sample_to_theta(
         penalty_max: float = 5.0,
         model: str = "l2",
         max_layers: int = 20,
+        rng: np.random.RandomState = None,
         seed: int = 42,
 ) -> Tuple[torch.Tensor, list, np.ndarray]:
     """
@@ -173,6 +174,8 @@ def posterior_sample_to_theta(
         Cost model for ruptures (default: 'l2')
     max_layers : int
         Maximum number of layers (for padding in θ)
+    rng : np.random.RandomState
+        Random number generator
     seed : int
         Random seed for reproducibility
 
@@ -200,7 +203,9 @@ def posterior_sample_to_theta(
     bkps_all_km = []
     penalties = []
 
-    rng = np.random.default_rng(seed)
+    if rng is None:
+        rng = np.random.default_rng(seed)
+    # end if
 
     for i in range(n_samples):
         vs = vs_batch[i]
@@ -288,3 +293,69 @@ def flatten_models(
 
     return torch.cat(flat_models, dim=0)
 # end def flatten_models
+
+
+def random_flatten_models(
+        samples: Union[np.ndarray, torch.Tensor],
+        penalty_min: float = 0.1,
+        penalty_max: float = 5.0,
+        model: str = "l2",
+        rng: np.random.RandomState = None,
+        seed: int = 42,
+) -> np.ndarray:
+    """
+    Flatten posterior samples using PELT segmentation, with a random penalty
+    drawn uniformly between `penalty_min` and `penalty_max` for each sample.
+
+    Parameters
+    ----------
+    samples : np.ndarray or torch.Tensor
+        Posterior samples of shape (N, D_z)
+    penalty_min, penalty_max : float
+        Range of random penalties for the PELT algorithm.
+    model : str
+        Cost model for ruptures (default: "l2").
+    rng : np.random.RandomState
+        Random seed for reproducibility
+    seed : int
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    vs_flat_all : np.ndarray
+        Flattened velocity profiles of shape (N, D_z)
+    """
+    # --- Convert to numpy ---
+    if hasattr(samples, "detach"):
+        samples = samples.detach().cpu().numpy()
+
+    n_samples, depth_points = samples.shape
+    vs_flat_all = np.zeros_like(samples)
+
+    if rng is None:
+        rng = np.random.default_rng(seed)
+    # end if
+
+    # --- Flatten each sample with a random penalty ---
+    for i in range(n_samples):
+        s = samples[i]
+        penalty = rng.uniform(penalty_min, penalty_max)
+
+        algo = rpt.Pelt(model=model).fit(s)
+        bkps = algo.predict(pen=penalty)
+
+        vs_flat = np.zeros_like(s)
+        start = 0
+        for end in bkps:
+            vs_flat[start:end] = np.mean(s[start:end])
+            start = end
+        # end for
+
+        vs_flat_all[i] = vs_flat
+    # end for
+
+    return vs_flat_all
+# end def random_flatten_models
+
+
+
