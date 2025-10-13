@@ -1,6 +1,10 @@
 
 
 
+from .eval import (
+    ppc
+)
+
 from .sampling import (
     sample_models,
     theta_to_velocity_profile,
@@ -8,6 +12,7 @@ from .sampling import (
     random_flatten_models,
     flatten_models
 )
+
 from .viz import (
     plot_theta_and_dispersion,
     plot_training_summary,
@@ -19,6 +24,7 @@ from .viz import (
 
 
 __all__ = [
+    "ppc",
     "sample_models",
     "theta_to_velocity_profile",
     "posterior_sample_to_theta",

@@ -1,76 +1,89 @@
 
 
+import torch
 import numpy as np
+
+from compearth.extensions.surfdisp2k25 import dispsurf2k25_simulator
+
+from .sampling import posterior_sample_to_theta
 
 
 def ppc(
-        samples,
+        posterior,
+        n_samples,
+        x_obs,
         z,
-        disp_obs,
-        n_keep=5,
-        penalty_range,   # Interval sampling penality
+        penalty_min,
+        penalty_max,   # Interval sampling penality
         min_p,
         max_p,
+        layers_max,
         vpvs=1.75,
-        random_state=None,
+        best_k=100,
+        rng=None,
         return_all=False,
+        seed: int = 42
 ):
     """
     Run simulations for a sample (Posterior Predictive Check)
     """
-    rng = np.random.default_rng(random_state)
-    pers_obs = np.linspace(min_p, max_p, disp_obs.shape[0])
+    if rng is None:
+        rng = np.random.default_rng(seed)
+    # end if
+
+    iflsph = 0  # Flat Earth approximation (0 = flat, 1 = spherical)
+    iwave = 2  # Wave type (2 = Rayleigh, 1 = Love)
+    mode = 1  # Fundamental mode
+    igr = 1  # Compute group velocity (1 = group, 0 = phase)
+
+    # Periods
+    pers_obs = np.linspace(min_p, max_p, x_obs.shape[0])
+
+    # Generate samples
+    samples = posterior.sample((n_samples,), x=x_obs)
+
+    # Transform our posterior samples to theta vectors
+    theta_models, _, _ = posterior_sample_to_theta(
+        z=z,
+        vs_batch=samples,
+        vpvs=vpvs,
+        penalty_min=penalty_min,
+        penalty_max=penalty_max,
+        max_layers=layers_max,
+        rng=rng
+    )
+
+    # Run the simulator on the sampled models
+    disp_curves = dispsurf2k25_simulator(
+        theta=theta_models,
+        p_min=min_p,
+        p_max=max_p,
+        kmax=x_obs.shape[0],
+        iflsph=iflsph,
+        iwave=iwave,
+        mode=mode,
+        igr=igr,
+        progress=True
+    )
 
     results = []
     for i in range(samples.shape[0]):
-        # Sample penalty from uniform distribution
-        penalty = rng.uniform(*penalty_range)
-
-        vs_flat, vsm, vpm, rhom, thkm = to_surfdisp_model(
-            z,
-            samples[i],
-            penalty=penalty,
-            vpvs=vpvs
-        )
-
-        n_layers = thkm.shape[0]
-        pers_sim, dispvel_sim, err = forward_dispersion(
-            vsm,
-            vpm,
-            rhom,
-            thkm,
-            n_layers,
-            kmax=kmax,
-            min_p=min_p,
-            max_p=max_p
-        )
-
-        # === interpolation sur les périodes de l'obs ===
-        dispvel_interp = np.interp(pers_obs, pers_sim, dispvel_sim)
-
         # === erreur RMS ===
-        rms = np.sqrt(np.mean((dispvel_interp - disp_obs)**2))
-
+        rms = np.sqrt(torch.mean((disp_curves[0].cpu() - x_obs.cpu()) ** 2))
         results.append({
-            "idx": i,
-            "penalty": penalty,
-            "vs_flat": vs_flat,
-            "vsm": vsm,
-            "vpm": vpm,
-            "rhom": rhom,
-            "thkm": thkm,
-            "dispvel": dispvel_interp,
-            "pers": pers_obs,
+            "disp_curve": disp_curves[i],
             "rms": rms
         })
     # end for
 
+    # Sort my RMS
     results_sorted = sorted(results, key=lambda r: r["rms"])
+    best = results_sorted[:best_k]
 
     if return_all:
-        return results_sorted, results_sorted[:n_keep]
+        return results_sorted, best
     # end if
 
-    return results_sorted[:n_keep]
+    return best
 # end def ppc
 
